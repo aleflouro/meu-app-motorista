@@ -1,95 +1,86 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 from datetime import datetime
+import io
 
-# --- CONFIGURAÇÕES TÉCNICAS (Sandero 1.6 8v GNV) ---
-CUSTO_KM_GNV = 0.42
-CUSTO_KM_MANUT = 0.23
-CUSTO_OPERACIONAL_TOTAL = CUSTO_KM_GNV + CUSTO_KM_MANUT
+# --- CONFIGURAÇÕES DO VEÍCULO (Sandero 1.6 8v) ---
+PRECO_GNV = 5.40
+CONS_MEDIO = 12.0
+CUSTO_KM_MANUT = 0.25 # Reserva p/ pneus, óleo, correia
 PARCELA_CARRO = 1100.00
 SEGURO_MENSAL = 265.00
-CUSTO_FIXO_MENSAL = PARCELA_CARRO + SEGURO_MENSAL
-META_LUCRO_DESEJADO = 5000.00
+CUSTO_FIXO_DIA = (PARCELA_CARRO + SEGURO_MENSAL) / 22
 
-st.set_page_config(page_title="Gestão de Motorista Pro", page_icon="🚕", layout="wide")
+st.set_page_config(page_title="Sandero 1.6 Pro", layout="wide", page_icon="🚗")
 
-# --- ESTILIZAÇÃO ---
-st.markdown("""
-    <style>
-    .main { background-color: #f5f7f9; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }
-    </style>
-    """, unsafe_allow_html=True)
+# --- INICIALIZAÇÃO DE DADOS (Persistência na Sessão) ---
+if 'db_ganhos' not in st.session_state:
+    st.session_state.db_ganhos = pd.DataFrame(columns=['Data', 'Dia', 'Faturamento', 'KM', 'Lucro_Real'])
+if 'km_odometro' not in st.session_state:
+    st.session_state.km_odometro = 100000.0 # Ajuste para o KM real do seu carro aqui
 
 # --- SIDEBAR: LANÇAMENTO DIÁRIO ---
-st.sidebar.header("📝 Lançar Ganhos do Dia")
-data_atual = st.sidebar.date_input("Data", datetime.now())
-faturamento_bruto = st.sidebar.number_input("Faturamento Bruto (R$)", min_value=0.0, step=10.0)
-km_rodado = st.sidebar.number_input("KM Total Rodado (Painel)", min_value=0.1, step=1.0)
-horas_online = st.sidebar.number_input("Horas Online", min_value=0.1, step=0.5)
+st.sidebar.header("📥 Lançar Dia de Trabalho")
+with st.sidebar.form("form_dia"):
+    data_t = st.date_input("Data", datetime.now())
+    fat_t = st.number_input("Ganho Total no App (R$)", min_value=0.0)
+    km_t = st.number_input("KM Total Rodado Hoje", min_value=1.0)
+    
+    if st.form_submit_button("💾 Salvar no Histórico"):
+        custo_gnv = (km_t / CONS_MEDIO) * PRECO_GNV
+        custo_total = (km_t * CUSTO_KM_MANUT) + custo_gnv + CUSTO_FIXO_DIA
+        lucro_calc = fat_t - custo_total
+        
+        novo_registro = pd.DataFrame([[data_t, data_t.strftime('%A'), fat_t, km_t, lucro_calc]], 
+                                    columns=['Data', 'Dia', 'Faturamento', 'KM', 'Lucro_Real'])
+        st.session_state.db_ganhos = pd.concat([st.session_state.db_ganhos, novo_registro], ignore_index=True)
+        st.session_state.km_odometro += km_t
+        st.sidebar.success("Dados salvos!")
 
-# --- CÁLCULOS PRINCIPAIS ---
-gasto_combustivel_manut = km_rodado * CUSTO_OPERACIONAL_TOTAL
-diaria_fixos = CUSTO_FIXO_MENSAL / 22 # Base 22 dias trab/mês
-lucro_liquido_dia = faturamento_bruto - gasto_combustivel_manut - diaria_fixos
-ganho_por_km = faturamento_bruto / km_rodado
-ganho_por_hora = faturamento_bruto / horas_online
+# --- CORPO DO APP ---
+st.title("🚀 Gestor de Ganhos - Sandero 1.6")
 
-# --- DASHBOARD PRINCIPAL ---
-st.title("🚕 Painel de Controle: Sandero 1.6 GNV")
-st.subheader(f"Resumo do Dia: {data_atual.strftime('%d/%m/%Y')}")
+# --- SEÇÃO 1: ALERTAS DE MANUTENÇÃO ---
+st.subheader("🚨 Alertas de Manutenção (Odômetro: {:.0f} km)".format(st.session_state.km_odometro))
+c1, c2, c3 = st.columns(3)
 
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric("Lucro Líquido Real", f"R$ {lucro_liquido_dia:.2f}")
-with col2:
-    st.metric("R$ por KM", f"R$ {ganho_por_km:.2f}", delta="Ideal: > R$ 1.60")
-with col3:
-    st.metric("Custo de Rodagem", f"R$ {gasto_combustivel_manut:.2f}", delta_color="inverse")
-with col4:
-    st.metric("R$ por Hora", f"R$ {ganho_por_hora:.2f}")
+# Lógica de Alerta Simples (Troca a cada 10k óleo, 50k correia, 30k velas)
+with c1:
+    st.metric("Troca de Óleo", "A cada 10.000km")
+    st.progress(0.7) # Exemplo de barra de vida do óleo
+with c2:
+    st.metric("Correia Dentada", "A cada 50.000km")
+    st.info("Foco: Motor K7M 1.6")
+with c3:
+    st.metric("Sistema GNV/Velas", "A cada 30.000km")
+    st.success("GNV a R$ 5,40")
 
 st.divider()
 
-# --- ABA DE METAS E DOCUMENTAÇÃO ---
-tab1, tab2, tab3 = st.tabs(["🎯 Meta R$ 5k", "📋 Tabela de Decisão", "📅 Documentos 2026"])
+# --- SEÇÃO 2: GRÁFICOS E TABELAS ---
+tab1, tab2, tab3 = st.tabs(["📊 Desempenho", "📅 Histórico Completo", "📥 Exportar Excel"])
 
 with tab1:
-    st.subheader("Progresso para o Lucro de R$ 5.000,00")
-    meta_bruta_mes = 9965.00  # Calculado anteriormente
-    progresso = min((faturamento_bruto * 22) / meta_bruta_mes, 1.0) # Simulação mensal baseada no dia
-    st.progress(progresso)
-    st.write(f"Se todos os dias forem como hoje, você atingirá **{progresso*100:.1f}%** da sua meta mensal.")
-    
-    st.info("""**Dica para o Sandero 1.6:** Para sobrar R$ 5k limpo, você precisa faturar em média 
-            **R$ 453,00 por dia** e não rodar mais que **280km**.""")
+    if not st.session_state.db_ganhos.empty:
+        fig = px.bar(st.session_state.db_ganhos, x='Dia', y='Lucro_Real', color='Lucro_Real', 
+                     title="Lucro Real por Dia da Semana", color_continuous_scale='Greens')
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Preencha os dados na lateral para ver seu gráfico de lucro.")
 
 with tab2:
-    st.subheader("Vale a pena aceitar?")
-    decisao_data = {
-        "Valor por KM": ["Abaixo de R$ 1,20", "R$ 1,30 a R$ 1,50", "Acima de R$ 1,60", "Acima de R$ 2,00"],
-        "Resultado": ["🔴 PREJUÍZO (Não aceite)", "🟡 ACEITÁVEL (Só sem trânsito)", "🟢 BOM (Padrão de lucro)", "💎 EXCELENTE (Prioridade)"]
-    }
-    st.table(pd.DataFrame(decisao_data))
+    st.dataframe(st.session_state.db_ganhos, use_container_width=True)
 
 with tab3:
-    st.subheader("Calendário Detran/GNV 2026")
-    docs = {
-        "Item": ["Vistoria GNV (CSV)", "Licenciamento (GRT)", "IPVA 2026", "Correia Dentada (Preventiva)"],
-        "Prazo": ["Março/2026", "Abril/2026", "Janeiro/2026", "A cada 40k KM"],
-        "Valor Est.": ["R$ 350,00", "R$ 190,00", "R$ 480,00", "R$ 750,00"]
-    }
-    st.dataframe(pd.DataFrame(docs), use_container_width=True)
+    st.subheader("Baixar Relatório para Comprovação de Renda")
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        st.session_state.db_ganhos.to_excel(writer, index=False, sheet_name='Ganhos')
     
-    # Calculadora de Reserva
-    st.warning("⚠️ **Reserva de Emergência:** Guarde **R$ 12,00 por dia** trabalhado para cobrir esses custos sem sustos.")
-
-# --- RODAPÉ INFORMATIVO ---
-st.sidebar.divider()
-st.sidebar.markdown(f"""
-**Configuração Ativa:**
-- Consumo GNV: 12km/m³
-- Preço GNV: R$ 4,99
-- Manutenção: R$ 0,23/km
-- Financiamento: R$ 1.100,00
-""")
+    st.download_button(
+        label="📥 Baixar Planilha Excel",
+        data=output.getvalue(),
+        file_name="relatorio_motorista_2026.xlsx",
+        mime="application/vnd.ms-excel"
+    )
